@@ -42,12 +42,12 @@ volatile unsigned short int osc0_ovf = 0;
 volatile unsigned short int osc1_ovf = 0;
 volatile unsigned long int osc0_tcnt = 0;
 volatile unsigned long int osc1_tcnt = 0;
-volatile unsigned long int osc0;
-volatile unsigned long int osc0_raw;
-volatile unsigned long int osc1;
+volatile unsigned long int osc0 = 0;
+volatile unsigned long int osc0_raw = 0;
+volatile unsigned long int osc1 = 0;
 volatile long int osc0_offset __attribute__ ((section (".noinit")));
 
-volatile unsigned long int osc0_threshold = 0;
+volatile unsigned long int osc0_threshold __attribute__ ((section (".noinit")));
 
 volatile unsigned char flags = 0b00010000;  // {,print_offset,reading_seg,val_print_en,printing_threshold,reading_threshold,printing,print_results}
 volatile unsigned char oscstat;             // {,,,,entering,exiting,osc1_first,osc0_first}
@@ -55,13 +55,14 @@ volatile unsigned char time_since_comp;
 volatile unsigned char time_since_motion;
 unsigned long tmp;
 volatile unsigned long seg_disp = 0;
+char v;
 
 const unsigned char seg_lut[10] = {0b0111111, 0b0000110, 0b1011011, 0b1001111, 0b1100110, 0b1101101, 0b1111101, 0b0000111, 0b1111111, 0b1101111};
 
 
 #define TXBUF 32
 volatile unsigned char string_ptr;
-char print_string[TXBUF];
+char print_string[TXBUF+1];
 
 // Non-blocking version for use in ISRs
 void print_num_nh(unsigned long n) {
@@ -134,37 +135,40 @@ ISR(USART0_TX_vect) {
 }
 
 ISR(USART0_RX_vect) {
+    v = UDR0;
     if (flags & 0b00000100) {
-        if (('0' <= UDR0) && (UDR0 <= '9')) {
-            osc0_threshold = osc0_threshold * 10 + UDR0 - '0';
-        } else if (UDR0 == ';') {
+        if (('0' <= v) && (v <= '9')) {
+            osc0_threshold = osc0_threshold * 10 + v - '0';
+        } else if (v == ';') {
             flags &= 0b11111011;
             flags |= 0b00001000;
             //print_num_nh(osc0_threshold);
         }
     } else if (flags & 0b00100000) {
-        if (('0' <= UDR0) && (UDR0 <= '9')) {
-            seg_disp = UDR0 - '0';
+        if (('0' <= v) && (v <= '9')) {
+            seg_disp = v - '0';
             PORTA = seg_lut[seg_disp];
-        } else if (UDR0 == ';')
+        } else if (v == ';')
             flags &= 0b11011111;
-    } else if (UDR0 == 'r') {
+    } else if (v == 'r') {
         osc0_offset = osc0_offset + osc1 - osc0;
         flags |= 0b01000000;
-    } else if (UDR0 == 'R') {
+    } else if (v == 'R') {
         osc0_offset = 0;
         strcpy(print_string + TXBUF - 10, "eq. reset\n");
         string_ptr = TXBUF - 10 + 1;
-        UDR0 = print_string[TXBUF - 10];
-    } else if (UDR0 == 't') {
+        v = print_string[TXBUF - 10];
+    } else if (v == 't') {
         osc0_threshold = 0;
         flags |= 0b00000100;
-    } else if (UDR0 == 'v') {
+    } else if (v == 'v') {
         flags |= 0b00010000;
-    } else if (UDR0 == 'V') {
+    } else if (v == 'V') {
         flags &= 0b11101111;
-    } else if (UDR0 == 's') {
+    } else if (v == 's') {
         flags |= 0b00100000;
+    } else if (v == 'o') {
+        flags |= 0b01000000;
     }
 }
 
@@ -203,8 +207,10 @@ int main() {
                 print_num(osc0);
                 print_char('\t');
                 print_num(osc1);
-                //print_num(osc0_tcnt);
+                print_char('\t');
+                print_num(osc0_threshold);
                 osc0_tcnt = 0;
+                print_char('\r');
                 print_char('\n');
             }
             if (osc0 < osc0_threshold) {
@@ -277,6 +283,7 @@ int main() {
             print_char('\t');
             print_num(osc1);
             
+            print_char('\r');
             print_char('\n');
             flags &= 0b10111111;
         }
